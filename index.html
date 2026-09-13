@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AntForge · 兰顿蚂蚁锻造炉</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#e6edf3;
+    --muted:#8b949e; --accent:#58a6ff; --live:#3fb950; --dead:#0d1117; --ant:#f0883e;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;}
+  .wrap{max-width:1040px;margin:0 auto;padding:20px;}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:.5px;}
+  h1 .v{color:var(--accent);}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:16px;}
+  .layout{display:grid;grid-template-columns:1fr 300px;gap:16px;}
+  @media(max-width:820px){.layout{grid-template-columns:1fr;}}
+  .stage{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px;}
+  canvas{display:block;width:100%;height:auto;background:#05060a;border:1px solid var(--border);border-radius:4px;}
+  .side{display:flex;flex-direction:column;gap:12px;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px;}
+  .card h2{font-size:12px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;}
+  button{background:#21262d;color:var(--txt);border:1px solid var(--border);border-radius:6px;
+    padding:7px 10px;font-size:12px;cursor:pointer;font-family:inherit;}
+  button:hover{border-color:var(--accent);}
+  button.primary{background:var(--accent);color:#0d1117;border-color:var(--accent);font-weight:600;}
+  label{font-size:11px;color:var(--muted);display:block;margin:8px 0 4px;}
+  input[type=range]{width:100%;}
+  .stats{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px dashed var(--border);}
+  .stats:last-child{border-bottom:none;}
+  .stats b{color:var(--accent);}
+  .self{font-size:11px;line-height:1.7;}
+  .self .ok{color:var(--live);}
+  .self .bad{color:#f85149;}
+  .hint{font-size:11px;color:var(--muted);line-height:1.6;}
+  .legend{font-size:11px;color:var(--muted);line-height:1.7;}
+  .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AntForge <span class="v">·</span> 兰顿蚂蚁锻造炉</h1>
+  <div class="sub">单文件离线兰顿蚂蚁（Langton's ant）· 确定性元胞自动机 + 可逆 CA 自检 — <a href="https://github.com/CJX0712/ant-forge" style="color:var(--accent)">github.com/CJX0712/ant-forge</a></div>
+
+  <div class="layout">
+    <div class="stage">
+      <canvas id="cv" width="620" height="620"></canvas>
+      <label>每帧步数 <span id="spdLabel">20</span> · 已运行 <span id="stepLabel">0</span> 步</label>
+      <input id="spd" type="range" min="1" max="200" value="20">
+    </div>
+
+    <div class="side">
+      <div class="card">
+        <h2>状态</h2>
+        <div class="stats"><span>步数</span><b id="st">0</b></div>
+        <div class="stats"><span>黑格数</span><b id="bc">0</b></div>
+        <div class="stats"><span>蚂蚁朝向</span><b id="dir">↑</b></div>
+        <div class="stats"><span>蚂蚁坐标</span><b id="pos">0,0</b></div>
+      </div>
+
+      <div class="card">
+        <h2>控制</h2>
+        <div class="row">
+          <button id="play" class="primary">▶ 播放</button>
+          <button id="reset">重置</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button id="highway">跳到 highway (11000)</button>
+        </div>
+        <div class="legend" style="margin-top:8px;">
+          <div><span class="sw" style="background:#3fb950"></span>黑格</div>
+          <div><span class="sw" style="background:#f0883e"></span>蚂蚁（↑→↓← 示朝向）</div>
+        </div>
+        <div class="hint" style="margin-top:6px;">规则：白格→右转并染黑；黑格→左转并染白。空网格约 1 万步后必现「公路」(周期 104 的斜向循环)。</div>
+      </div>
+
+      <div class="card">
+        <h2>内置自检</h2>
+        <div class="self" id="selfcheck">点击「运行自检」验证引擎不变量。</div>
+        <div class="row" style="margin-top:8px;">
+          <button id="selftest">运行自检</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="engine">
+// ===== AntForge engine (pure, headless-extractable) =====
+const Ant = (function(){
+  // dir vectors: 0=up, 1=right, 2=down, 3=left
+  const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  function key(x, y){ return x + ',' + y; }
+  function makeState(){ return { blacks: new Set(), x: 0, y: 0, dir: 0 }; }
+  function clone(s){ return { blacks: new Set(s.blacks), x: s.x, y: s.y, dir: s.dir }; }
+
+  // one forward Langton step. Returns state (mutated in place).
+  function step(s){
+    const k = key(s.x, s.y);
+    const black = s.blacks.has(k);
+    if (black) s.blacks.delete(k); else s.blacks.add(k);   // flip color
+    s.dir = black ? (s.dir + 3) % 4 : (s.dir + 1) % 4;       // black->left, white->right
+    const d = DIRS[s.dir];
+    s.x += d[0]; s.y += d[1];                                // move forward
+    return s;
+  }
+
+  // exact inverse of step(): Langton's ant is a reversible CA.
+  function stepBack(s){
+    const d = DIRS[s.dir];
+    const px = s.x - d[0], py = s.y - d[1];                  // previous ant position
+    const k = key(px, py);
+    const nowBlack = s.blacks.has(k);
+    const cOld = nowBlack ? 0 : 1;                           // forward flipped this cell
+    if (cOld === 1) s.blacks.add(k); else s.blacks.delete(k);
+    // undo the turn: forward turned right if cOld==0 else left
+    s.dir = cOld === 0 ? (s.dir + 3) % 4 : (s.dir + 1) % 4;
+    s.x = px; s.y = py;
+    return s;
+  }
+
+  function run(s, n){ for (let i = 0; i < n; i++) step(s); return s; }
+  function blackCount(s){ return s.blacks.size; }
+  function hash(s){
+    const arr = Array.from(s.blacks).sort();
+    return s.x + '|' + s.y + '|' + s.dir + '|' + arr.join(';');
+  }
+  return { DIRS, makeState, clone, step, stepBack, run, blackCount, hash, key };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = Ant;
+</script>
+
+<script>
+// ===== UI =====
+(function(){
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const ARROW = ['↑', '→', '↓', '←'];
+  let st = Ant.makeState();
+  let playing = false, raf = null, steps = 0;
+
+  function draw(){
+    const cs = 5;                          // cell size in px
+    const camX = st.x, camY = st.y;        // camera follows ant
+    const ox = W / 2 - camX * cs, oy = H / 2 - camY * cs;
+    ctx.fillStyle = '#05060a'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#3fb950';
+    const x0 = Math.floor((0 - ox) / cs), x1 = Math.ceil((W - ox) / cs);
+    const y0 = Math.floor((0 - oy) / cs), y1 = Math.ceil((H - oy) / cs);
+    st.blacks.forEach(k => {
+      const p = k.split(',');
+      const gx = +p[0], gy = +p[1];
+      if (gx < x0 || gx > x1 || gy < y0 || gy > y1) return;
+      ctx.fillRect(ox + gx * cs, oy + gy * cs, cs - 1, cs - 1);
+    });
+    ctx.fillStyle = '#f0883e';
+    ctx.fillRect(ox + st.x * cs, oy + st.y * cs, cs - 1, cs - 1);
+    ctx.fillStyle = '#0d1117';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ARROW[st.dir], ox + st.x * cs + cs / 2, oy + st.y * cs + cs / 2);
+
+    document.getElementById('st').textContent = steps;
+    document.getElementById('bc').textContent = st.blacks.size;
+    document.getElementById('dir').textContent = ARROW[st.dir];
+    document.getElementById('pos').textContent = st.x + ',' + st.y;
+    document.getElementById('stepLabel').textContent = steps;
+    document.getElementById('spdLabel').textContent = document.getElementById('spd').value;
+  }
+
+  function tick(){
+    if (!playing) return;
+    const n = +document.getElementById('spd').value;
+    for (let i = 0; i < n; i++){ Ant.step(st); steps++; }
+    draw();
+    raf = requestAnimationFrame(tick);
+  }
+
+  document.getElementById('play').onclick = () => {
+    playing = !playing;
+    document.getElementById('play').textContent = playing ? '⏸ 暂停' : '▶ 播放';
+    if (playing) tick();
+  };
+  document.getElementById('reset').onclick = () => {
+    playing = false; steps = 0;
+    document.getElementById('play').textContent = '▶ 播放';
+    st = Ant.makeState();
+    if (raf) cancelAnimationFrame(raf);
+    draw();
+  };
+  document.getElementById('highway').onclick = () => {
+    playing = false; steps = 11000;
+    document.getElementById('play').textContent = '▶ 播放';
+    if (raf) cancelAnimationFrame(raf);
+    st = Ant.makeState();
+    Ant.run(st, 11000);
+    draw();
+  };
+  document.getElementById('spd').oninput = () => { document.getElementById('spdLabel').textContent = document.getElementById('spd').value; };
+
+  document.getElementById('selftest').onclick = () => {
+    const out = [];
+    const T = (name, cond) => out.push((cond ? '<span class="ok">✓</span> ' : '<span class="bad">✗</span> ') + name);
+
+    // 1) single step from empty grid (white -> right turn, flip black, move right)
+    {
+      const s = Ant.makeState();
+      Ant.step(s);
+      T('单步·白格: 染黑 + 右转 + 右移', s.blacks.has('0,0') && s.dir === 1 && s.x === 1 && s.y === 0);
+    }
+    // 2) single step on a black cell (black -> left turn, flip white, move left)
+    {
+      const s = Ant.makeState();
+      s.blacks.add('0,0');
+      Ant.step(s);
+      T('单步·黑格: 染白 + 左转 + 左移', !s.blacks.has('0,0') && s.dir === 3 && s.x === -1 && s.y === 0);
+    }
+    // 3) black-cell count over first 5 steps (empty start): 1,2,3,4,3
+    {
+      const seq = [1, 2, 3, 4, 3];
+      const s = Ant.makeState();
+      let ok = true;
+      for (let i = 0; i < seq.length; i++){ Ant.step(s); if (s.blacks.size !== seq[i]) ok = false; }
+      T('前 5 步黑格数 = 1,2,3,4,3', ok);
+    }
+    // 4) determinism
+    {
+      const a = Ant.makeState(), b = Ant.makeState();
+      Ant.run(a, 500); Ant.run(b, 500);
+      T('确定性：同初值 500 步同形', Ant.hash(a) === Ant.hash(b));
+    }
+    // 5) reversibility: forward 300 then stepBack 300 == original
+    {
+      let ok = true;
+      for (let seed = 1; seed <= 5; seed++){
+        const s0 = Ant.makeState();
+        // randomize initial state
+        let r = seed * 2654435761 >>> 0;
+        const rnd = () => { r = (r * 1664525 + 1013904223) >>> 0; return r / 4294967296; };
+        for (let i = 0; i < 40; i++){ const gx = (Math.floor(rnd() * 21) - 10), gy = (Math.floor(rnd() * 21) - 10); s0.blacks.add(gx + ',' + gy); }
+        s0.x = Math.floor(rnd() * 11) - 5; s0.y = Math.floor(rnd() * 11) - 5; s0.dir = Math.floor(rnd() * 4);
+        const before = Ant.hash(s0);
+        const s = Ant.clone(s0);
+        Ant.run(s, 300);
+        for (let i = 0; i < 300; i++) Ant.stepBack(s);
+        if (Ant.hash(s) !== before) ok = false;
+      }
+      T('可逆 CA：前向 300 步再后向 300 步精确还原', ok);
+    }
+    // 6) highway forms after ~11000 steps (period-104 constant diagonal displacement)
+    {
+      const s = Ant.makeState();
+      Ant.run(s, 11000);
+      const p = (n) => { const q = Ant.clone(s); Ant.run(q, n); return [q.x, q.y]; };
+      const a = p(0), b = p(104), c = p(208), d = p(312);
+      const v1 = [b[0] - a[0], b[1] - a[1]];
+      const v2 = [c[0] - b[0], c[1] - b[1]];
+      const v3 = [d[0] - c[0], d[1] - c[1]];
+      const sameVec = v1[0] === v2[0] && v1[1] === v2[1] && v2[0] === v3[0] && v2[1] === v3[1];
+      const diagonal = Math.abs(v1[0]) === Math.abs(v1[1]) && (v1[0] !== 0);
+      const far = Math.hypot(s.x, s.y) > 20;
+      T('highway：11000 步后周期 104 恒定斜向位移 + 远离原点', sameVec && diagonal && far);
+    }
+    document.getElementById('selfcheck').innerHTML = out.join('<br>');
+  };
+
+  draw();
+})();
+</script>
+</body>
+</html>

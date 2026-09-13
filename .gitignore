@@ -1,0 +1,6 @@
+# build artifacts / OS noise
+.DS_Store
+Thumbs.db
+*.log
+_probe.txt
+node_modules/
