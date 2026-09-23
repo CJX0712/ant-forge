@@ -1,5 +1,12 @@
 # AntForge · 兰顿蚂蚁锻造炉
 
+<p align="center">
+  <a href="https://github.com/CJX0712/ant-forge/actions/workflows/ci.yml"><img src="https://github.com/CJX0712/ant-forge/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/CJX0712/ant-forge/releases"><img src="https://img.shields.io/github/v/release/CJX0712/ant-forge?sort=semver" alt="release"></a>
+  <a href="https://github.com/CJX0712/ant-forge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/CJX0712/ant-forge" alt="license"></a>
+  <img src="https://img.shields.io/badge/author-%E6%99%A8%E6%98%9F-1f6feb" alt="author">
+</p>
+
 单文件、零依赖、可离线运行的**兰顿蚂蚁（Langton's ant）**元胞自动机锻造工具。
 
 - 空网格实况演化：白格→右转并染黑；黑格→左转并染白
